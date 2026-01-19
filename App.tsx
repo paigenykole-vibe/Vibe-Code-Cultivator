@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ModuleType, UserStats, GlossaryEntry, QuizQuestion } from './types';
 import { MODULES, QUIZZES, GLOSSARY, INITIAL_ASSESSMENT_POOL } from './constants';
 import ModuleCard from './components/ModuleCard';
+// Fix the import to point to the local file
 import Quiz from './quiz-component';
 import { generateVibeFeedback, generatePracticePromptChallenge } from './geminiService';
 import confetti from 'https://esm.sh/canvas-confetti@1.9.3';
@@ -13,6 +14,10 @@ const App: React.FC = () => {
   });
   
   const [isAssessmentView, setIsAssessmentView] = useState(false);
+  const [showCanvas, setShowCanvas] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   const [stats, setStats] = useState<UserStats>(() => {
     const saved = localStorage.getItem('cultivator_stats');
@@ -55,14 +60,6 @@ const App: React.FC = () => {
     }
   }, [stats, unlockedStudios]);
 
-  useEffect(() => {
-    if (showGlossary || activeQuiz || activeDefinition) {
-      document.body.classList.add('modal-open');
-    } else {
-      document.body.classList.remove('modal-open');
-    }
-  }, [showGlossary, activeQuiz, activeDefinition]);
-
   const assessmentQuestions = useMemo(() => {
     return [...INITIAL_ASSESSMENT_POOL]
       .sort(() => Math.random() - 0.5)
@@ -75,28 +72,15 @@ const App: React.FC = () => {
     window.scrollTo(0, 0);
   };
 
-  const resetToHome = () => {
-    setActivePlayground(null);
-    setIsAnalyzed(false);
-    setFeedback(null);
-    setIsAssessmentView(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
   const handleAssessmentComplete = (totalPoints: number) => {
     setHasTakenAssessment(true);
     setIsAssessmentView(false);
     localStorage.setItem('cultivator_assessment_done', 'true');
-    
     const newUnlocks = [ModuleType.CREATIVITY];
     if (totalPoints >= 30) newUnlocks.push(ModuleType.PROMPTING);
     if (totalPoints >= 50) newUnlocks.push(ModuleType.CODE_ONRAMP);
-
     setUnlockedStudios(newUnlocks);
-    setStats(s => ({
-      ...s,
-      points: s.points + totalPoints
-    }));
+    setStats(s => ({ ...s, points: s.points + totalPoints }));
     setActiveQuiz(null);
   };
 
@@ -105,6 +89,7 @@ const App: React.FC = () => {
     setFeedback(null);
     setPromptInput('');
     setIsAnalyzed(false);
+    setShowCanvas(false);
     try {
       const newChallenge = await generatePracticePromptChallenge(moduleType);
       setChallenge(newChallenge);
@@ -122,10 +107,24 @@ const App: React.FC = () => {
     await fetchNewChallenge(module);
   };
 
+  const resetToHome = () => {
+    setActivePlayground(null);
+    setFeedback(null);
+    setPromptInput('');
+    setChallenge(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleVibeCheck = async () => {
-    if (!promptInput.trim()) return;
+    if (!promptInput.trim() && !showCanvas) return;
     setLoading(true);
-    const res = await generateVibeFeedback(promptInput, activePlayground || 'creativity');
+    
+    let submissionText = promptInput;
+    if (showCanvas && canvasRef.current) {
+      submissionText += "\n[User submitted a custom drawing/sketch]";
+    }
+
+    const res = await generateVibeFeedback(submissionText, activePlayground || 'creativity');
     setFeedback(res);
     setLoading(false);
     setIsAnalyzed(true);
@@ -144,6 +143,72 @@ const App: React.FC = () => {
         };
       });
     }
+  };
+
+  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    setIsDrawing(true);
+    draw(e);
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx?.beginPath();
+    }
+  };
+
+  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDrawing || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = ('touches' in e) ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+    const y = ('touches' in e) ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#2D434E';
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  };
+
+  const startVoiceToText = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice to text is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setPromptInput(prev => prev + (prev ? " " : "") + transcript);
+    };
+
+    recognition.start();
   };
 
   const currentModuleData = MODULES.find(m => m.id === activePlayground);
@@ -189,12 +254,28 @@ const App: React.FC = () => {
 
   const getMasterEncouragement = (module: ModuleType) => {
     if (module === ModuleType.CREATIVITY) {
-      return "You are a master storyteller! You proved that great apps start with drawings, stories, and clear ideas. Your creativity is your greatest vibe-coding tool.";
+      return (
+        <div className="text-left space-y-4">
+          <p className="font-black text-2xl text-[#FFB703]">Creativity Master! ⭐</p>
+          <p>You have proved that great apps start with drawings, stories, and big ideas. You used narrative prompts to build your world!</p>
+          <p className="text-sm border-t pt-4 border-stone-200">Remember: Vibe-coding can start with words, quick sketches, or even just talking. Your imagination is the real power behind the screen!</p>
+        </div>
+      );
     }
     if (module === ModuleType.PROMPTING) {
-      return "Your communication is crystal clear! You have learned to speak 'AI' with precision and style. You can turn any fuzzy idea into a solid plan.";
+      return (
+        <div className="text-left space-y-4">
+          <p className="font-black text-2xl text-[#0077B6]">Clear Talker Master! ⭐</p>
+          <p>Your talking skills are amazing! You learned how to take a messy idea and make it clear for the AI. You are now an expert at giving instructions.</p>
+        </div>
+      );
     }
-    return "You think like a builder! You've mastered logic paths and bug-hunting. You now understand the basic rules that make every digital world work.";
+    return (
+      <div className="text-left space-y-4">
+        <p className="font-black text-2xl text-[#2D6A4F]">Logic Expert Master! ⭐</p>
+        <p>You think like a true builder! You learned how to spot mistakes and plan the steps for an app. You know how digital worlds really work.</p>
+      </div>
+    );
   };
 
   if (isAssessmentView && activeQuiz === 'INITIAL_ASSESSMENT') {
@@ -203,9 +284,9 @@ const App: React.FC = () => {
         <nav className="fixed top-0 left-0 right-0 z-40 glass border-b border-black/5 px-10 py-6 flex justify-between items-center shadow-sm">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 bg-[#8DB339] rounded-xl flex items-center justify-center text-xl shadow-lg text-white font-serif font-black">V</div>
-            <h1 className="text-lg font-black tracking-tighter text-[#2D434E] font-serif uppercase">Starting Quiz</h1>
+            <h1 className="text-lg font-black tracking-tighter text-[#2D434E] font-serif uppercase">Start Your Quiz</h1>
           </div>
-          <button onClick={() => setIsAssessmentView(false)} className="text-sm font-bold text-stone-400">Back</button>
+          <button onClick={() => setIsAssessmentView(false)} className="text-sm font-bold text-stone-400">Go Back</button>
         </nav>
         <div className="pt-24 min-h-screen flex items-center justify-center">
            <Quiz 
@@ -236,11 +317,11 @@ const App: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center p-6 bg-[#FDFEFA]">
         <div className="max-w-4xl w-full bg-white rounded-[4rem] p-12 md:p-20 text-center shadow-2xl border-[12px] border-[#F8F9F2]">
           <div className="mb-6 inline-block bg-[#8DB339]/10 px-6 py-2 rounded-full">
-            <span className="text-xs font-black text-[#2D6A4F] uppercase tracking-[0.3em]">Hello, Future Builder!</span>
+            <span className="text-xs font-black text-[#2D6A4F] uppercase tracking-[0.3em]">Welcome, Builder!</span>
           </div>
           <h1 className="text-6xl md:text-7xl font-black font-serif text-[#2D434E] mb-4">The Vibe <span className="text-[#8DB339]">Cultivator</span></h1>
           <p className="text-xl md:text-2xl font-medium text-[#4A4A4A] max-w-2xl mx-auto mb-12 leading-relaxed">
-            Turn your imagination into real projects. Learn how to plan, talk to AI, and understand how apps think.
+            Turn your ideas into cool projects. Plan your screens, talk to AI, and learn how apps work.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
             {MODULES.map(m => (
@@ -252,10 +333,10 @@ const App: React.FC = () => {
           </div>
           <div className="flex flex-col gap-4">
             <button onClick={startInitialAssessment} className="px-20 py-8 btn-vibe rounded-[2.5rem] font-black text-2xl uppercase tracking-[0.2em] shadow-2xl mx-auto">
-              Start Your Journey 🧭
+              Start Building 🧭
             </button>
             <button onClick={() => handleAssessmentComplete(10)} className="text-xs font-bold text-stone-400 hover:text-stone-600 transition-colors">
-              I'm ready to dream, go straight to Design Studio →
+              I'm ready! Go to Design Studio →
             </button>
           </div>
         </div>
@@ -280,17 +361,11 @@ const App: React.FC = () => {
       <nav className="fixed top-0 left-0 right-0 z-40 glass border-b border-black/5 px-10 py-6 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-[#8DB339] rounded-xl flex items-center justify-center text-xl shadow-lg text-white font-serif font-black">V</div>
-          <div>
-            <h1 className="text-lg font-black tracking-tighter text-[#2D434E] font-serif uppercase">The Vibe Cultivator</h1>
-          </div>
+          <h1 className="text-lg font-black tracking-tighter text-[#2D434E] font-serif uppercase">The Vibe Cultivator</h1>
         </div>
         <div className="flex items-center gap-10">
-          <button onClick={() => setShowGlossary(true)} className="text-[10px] font-black uppercase tracking-widest text-[#2D434E] bg-stone-100 hover:bg-stone-200 px-4 py-2 rounded-lg transition-colors">
-            Words to Know 📖
-          </button>
-          <button onClick={startInitialAssessment} className="text-[10px] font-black uppercase tracking-widest text-[#2D6A4F] hover:bg-[#8DB339]/10 px-4 py-2 rounded-lg transition-colors">
-            Restart Quiz 🧭
-          </button>
+          <button onClick={() => setShowGlossary(true)} className="text-[10px] font-black uppercase tracking-widest text-[#2D434E] bg-stone-100 px-4 py-2 rounded-lg">Words to Know 📖</button>
+          <button onClick={startInitialAssessment} className="text-[10px] font-black uppercase tracking-widest text-[#2D6A4F] px-4 py-2 rounded-lg">Retake Quiz 🧭</button>
           <div className="flex flex-col gap-1 w-32">
             {MODULES.map(m => (
               <div key={m.id} className="flex items-center gap-2">
@@ -310,23 +385,19 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-10 pt-40">
         {stats.allBucketsComplete ? (
           <div className="mb-20 p-16 bg-[#8DB339]/10 rounded-[4rem] border-4 border-[#8DB339]/20 text-center animate-in zoom-in duration-500">
-             <h2 className="text-5xl font-black font-serif text-[#2D434E] mb-6">Master Builder! 🎉</h2>
+             <h2 className="text-5xl font-black font-serif text-[#2D434E] mb-6">Expert Builder Status! 🎉</h2>
              <p className="text-xl text-[#2D434E]/80 mb-12 max-w-2xl mx-auto leading-relaxed">
-               You filled all 3 buckets! You have the vision, the words, and the logic. Take the final test to show off your vibe-coding skills.
+               You filled every bucket. You are ready to build any idea you have. Take the final big quiz to get your badge!
              </p>
-             <button onClick={() => setActiveQuiz('FINAL')} className="px-12 py-6 btn-vibe rounded-3xl font-black text-xl uppercase tracking-widest shadow-xl">
-               Final Big Quiz 🏆
-             </button>
+             <button onClick={() => setActiveQuiz('FINAL')} className="px-12 py-6 btn-vibe rounded-3xl font-black text-xl uppercase tracking-widest shadow-xl">Final Big Quiz 🏆</button>
           </div>
         ) : (
           <div className="mb-20 p-12 bg-[#FFD97D]/10 rounded-[4rem] border-2 border-[#FFD97D]/20">
             <div className="flex flex-col md:flex-row gap-12 items-center">
               <div className="w-32 h-32 rounded-full bg-white border-8 border-[#FFD97D] flex items-center justify-center text-5xl shadow-xl">🌱</div>
               <div className="flex-1 text-center md:text-left">
-                <h2 className="text-4xl font-black font-serif text-[#2D434E] mb-2">Build Your World</h2>
-                <p className="text-lg text-[#2D434E]/80 leading-relaxed font-medium">
-                  Finish tasks in each studio to grow your skills.
-                </p>
+                <h2 className="text-4xl font-black font-serif text-[#2D434E] mb-2">Plant Your Ideas</h2>
+                <p className="text-lg text-[#2D434E]/80 leading-relaxed font-medium">Use your imagination and finish tasks to grow your skills.</p>
               </div>
             </div>
           </div>
@@ -365,7 +436,7 @@ const App: React.FC = () => {
                       </div>
                     ) : (
                       <>
-                        <h4 className="font-black text-[10px] uppercase tracking-widest opacity-60 mb-6">Your Task</h4>
+                        <h4 className="font-black text-[10px] uppercase tracking-widest opacity-60 mb-6">Today's Task</h4>
                         <div className="text-2xl font-bold text-[#2D434E] mb-10 leading-snug">
                           {renderRichText(challenge?.challenge)}
                         </div>
@@ -378,24 +449,70 @@ const App: React.FC = () => {
                     )}
                   </div>
 
+                  <div className="mb-8 flex flex-wrap gap-4">
+                    {activePlayground === ModuleType.CREATIVITY && (
+                      <>
+                        <button 
+                          onClick={() => setShowCanvas(!showCanvas)} 
+                          className={`px-6 py-3 rounded-2xl font-bold transition-all ${showCanvas ? 'bg-[#FFB703] text-white shadow-lg' : 'bg-stone-100 text-stone-500'}`}
+                        >
+                          {showCanvas ? '✍️ Use Drawing' : '🎨 Draw Your Idea'}
+                        </button>
+                        <label className="px-6 py-3 bg-stone-100 text-stone-500 rounded-2xl font-bold cursor-pointer hover:bg-stone-200">
+                          📁 Upload Photo
+                          <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                            if (e.target.files?.[0]) {
+                               setPromptInput(prev => prev + "\n[User uploaded a sketch photo]");
+                            }
+                          }} />
+                        </label>
+                      </>
+                    )}
+                    <button 
+                      onClick={startVoiceToText}
+                      className={`px-6 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-stone-100 text-stone-500'}`}
+                    >
+                      {isListening ? '🎙️ Listening...' : '🎤 Voice to Text'}
+                    </button>
+                  </div>
+
+                  {showCanvas && (
+                    <div className="mb-8 p-4 bg-stone-50 rounded-3xl border-2 border-stone-200">
+                      <canvas 
+                        ref={canvasRef}
+                        width={600}
+                        height={400}
+                        onMouseDown={startDrawing}
+                        onMouseMove={draw}
+                        onMouseUp={stopDrawing}
+                        onMouseOut={stopDrawing}
+                        className="bg-white rounded-2xl w-full h-[300px] cursor-crosshair border"
+                      />
+                      <div className="mt-4 flex justify-between items-center">
+                        <span className="text-xs font-bold text-stone-400 italic">Sketch your screen map or feature idea here!</span>
+                        <button onClick={clearCanvas} className="text-xs font-black text-red-400 uppercase tracking-widest">Clear Drawing</button>
+                      </div>
+                    </div>
+                  )}
+
                   <textarea 
                     value={promptInput}
                     onChange={(e) => { setPromptInput(e.target.value); if (isAnalyzed) setIsAnalyzed(false); }}
-                    placeholder="Type your answer here... tell a story, list features, or fix a prompt."
+                    placeholder={activePlayground === ModuleType.CREATIVITY ? "Tell the story of your app or describe your sketch..." : "Type your answer here..."}
                     className="w-full h-64 bg-white border-2 border-stone-100 rounded-[2.5rem] p-12 text-xl text-[#2D434E] focus:ring-8 outline-none mb-8 transition-all"
                   />
                   {!isAnalyzed ? (
-                    <button disabled={loading || !promptInput} onClick={handleVibeCheck} className="w-full py-8 btn-vibe rounded-3xl font-black text-2xl uppercase tracking-widest disabled:opacity-50">
-                      {loading ? 'Thinking...' : 'Send to Analysis'}
+                    <button disabled={loading || (!promptInput && !showCanvas)} onClick={handleVibeCheck} className="w-full py-8 btn-vibe rounded-3xl font-black text-2xl uppercase tracking-widest disabled:opacity-50">
+                      {loading ? 'Analyzing...' : 'Submit to AI'}
                     </button>
                   ) : (
-                    <button disabled className="w-full py-8 bg-stone-100 text-stone-400 rounded-3xl font-black text-2xl uppercase tracking-widest">Feedback Ready!</button>
+                    <button disabled className="w-full py-8 bg-stone-100 text-stone-400 rounded-3xl font-black text-2xl uppercase tracking-widest">Check Result Below</button>
                   )}
                 </div>
 
                 <div className="w-full lg:w-[450px]">
                   <div className="bg-stone-50 rounded-[3rem] p-12 h-full border border-white shadow-inner flex flex-col">
-                    <h4 className="text-[11px] font-black text-stone-400 uppercase tracking-widest mb-12 text-center">Your Progress</h4>
+                    <h4 className="text-[11px] font-black text-stone-400 uppercase tracking-widest mb-12 text-center">Your Growth</h4>
                     {feedback ? (
                       <div className="space-y-12 flex-1 flex flex-col">
                         <div className="flex items-center justify-center">
@@ -416,26 +533,24 @@ const App: React.FC = () => {
                           })}
                         </div>
                         <div className="mt-auto pt-8 border-t border-black/5">
-                          <p className="text-xl italic font-serif text-center mb-8 px-4 leading-relaxed">
+                          <div className="text-stone-700 font-medium italic font-serif text-center mb-8 px-4 leading-relaxed">
                             {stats.bucketXP[activePlayground!] >= 50 
                               ? getMasterEncouragement(activePlayground!) 
-                              : `"${feedback.encouragement}"`}
-                          </p>
+                              : feedback.encouragement}
+                          </div>
                           {feedback.score >= 6 ? (
                             <button onClick={() => fetchNewChallenge(activePlayground!)} className="w-full py-6 btn-vibe rounded-2xl font-black text-xl uppercase tracking-widest">
-                              {stats.bucketXP[activePlayground] >= 50 ? "Refine Your Skills" : "Try Next Step ⚡"}
+                              {stats.bucketXP[activePlayground] >= 50 ? "Refine Your Skills" : "Next Challenge ⚡"}
                             </button>
                           ) : (
-                            <button onClick={() => { setIsAnalyzed(false); setFeedback(null); }} className="w-full py-6 bg-[#F07167] text-white rounded-2xl font-black text-xl uppercase tracking-widest">
-                              Try Again 🔄
-                            </button>
+                            <button onClick={() => { setIsAnalyzed(false); setFeedback(null); }} className="w-full py-6 bg-[#F07167] text-white rounded-2xl font-black text-xl uppercase tracking-widest">Try Again 🔄</button>
                           )}
                         </div>
                       </div>
                     ) : (
                       <div className="h-full flex flex-col items-center justify-center opacity-30">
                         <div className="text-7xl mb-6">✨</div>
-                        <p className="text-xl font-bold italic font-serif">Awaiting Result...</p>
+                        <p className="text-xl font-bold italic font-serif text-center">Waiting for your submission...</p>
                       </div>
                     )}
                   </div>
@@ -450,7 +565,7 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-[#2D434E]/60 backdrop-blur-xl" onClick={() => setShowGlossary(false)}>
           <div className="bg-white max-w-2xl w-full rounded-[3rem] p-12 shadow-2xl flex flex-col max-h-[85vh] border-4 border-[#8DB339]" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-black font-serif text-[#2D434E]">Builder Dictionary</h2>
+              <h2 className="text-3xl font-black font-serif text-[#2D434E]">The Word Box</h2>
               <button onClick={() => setShowGlossary(false)} className="text-stone-400 font-bold p-2">✕ Close</button>
             </div>
             <div className="space-y-6 overflow-y-auto pr-4 custom-scrollbar">
@@ -466,16 +581,14 @@ const App: React.FC = () => {
       )}
 
       <div className="fixed bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-6 bg-white/90 backdrop-blur-3xl px-12 py-6 rounded-[3rem] border border-black/5 shadow-2xl z-50">
-        <button className="text-xs font-black text-[#2D434E] uppercase tracking-[0.2em]" onClick={resetToHome}>Map</button>
+        <button className="text-xs font-black text-[#2D434E] uppercase tracking-[0.2em]" onClick={resetToHome}>Back to Map</button>
         {activePlayground && (
-          <button onClick={() => setActiveQuiz(activePlayground)} className="px-6 py-3 bg-[#2D434E] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">
-            Check Knowledge
-          </button>
+          <button onClick={() => setActiveQuiz(activePlayground)} className="px-6 py-3 bg-[#2D434E] text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">Knowledge Check</button>
         )}
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-[#2D434E] uppercase tracking-widest">
-              {Object.values(stats.bucketXP).filter(xp => xp >= 50).length} / 3 Buckets Full
+              {Object.values(stats.bucketXP).filter(xp => xp >= 50).length} / 3 Buckets Filled
             </span>
           </div>
         </div>

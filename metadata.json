@@ -1,5 +1,8 @@
 {
-  "name": "The Code Cultivator",
+  "name": "The Vibe Cultivator",
   "description": "Don't just generate. Grow. A masterclass for teens to move from basic AI prompting to sophisticated digital architecture.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }
