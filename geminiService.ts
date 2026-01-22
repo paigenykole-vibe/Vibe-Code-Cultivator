@@ -6,7 +6,18 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 export const generateVibeFeedback = async (userIdea: string, stage: string) => {
   try {
     const isDesign = stage === 'creativity';
+    const isComm = stage === 'prompting';
+    const isLogic = stage === 'code_onramp';
     
+    let studioSpecificPrompt = "";
+    if (isDesign) {
+      studioSpecificPrompt = "Focus on the VISION and STORY. Praise their imagination. Remind them that building apps starts with big ideas. Mention they can sketch or talk to get started.";
+    } else if (isComm) {
+      studioSpecificPrompt = "ACT LIKE A LITERAL ROBOT (The Peanut Butter Toast Game). If their instructions are even slightly vague, describe a funny 'fail' (e.g., 'You didn't say to open the peanut butter jar first, so I am just staring at the lid!'). Help them see where they need to be more precise.";
+    } else if (isLogic) {
+      studioSpecificPrompt = "Focus on the STEP-BY-STEP LOGIC. Check if their flow makes sense (If A happens, then B). Look for clear rules and decision-making.";
+    }
+
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `You are "The Vibe Cultivator," an encouraging mentor for teens (ages 10-15). 
@@ -17,14 +28,16 @@ export const generateVibeFeedback = async (userIdea: string, stage: string) => {
       2. If good: Use ⭐ for praise. 
       3. If needs help: Use 💡 for tips. 
       4. ONLY use 🚩 if they are completely off-track.
-      5. Speak at a 6th grade reading level. No complex jargon unless it's in the glossary.
-      6. ${isDesign ? "Focus on the vision and 'vibe'. Praise their creativity. Remind them they can start vibe-coding with drawings, stories, or even just talking to the AI." : "Focus on how clear their logic or prompt is."}
+      5. Speak at a 6th grade reading level. 
+      
+      STUDIO-SPECIFIC INSTRUCTIONS:
+      ${studioSpecificPrompt}
       
       Return JSON:
       {
         "score": number,
-        "suggestions": string[], // include emojis as specified
-        "encouragement": string // a supportive quote
+        "suggestions": string[], 
+        "encouragement": string 
       }`,
       config: {
         responseMimeType: "application/json",
@@ -49,19 +62,24 @@ export const generateVibeFeedback = async (userIdea: string, stage: string) => {
 
 export const generatePracticePromptChallenge = async (module: string, previousChallenge?: string) => {
     try {
+        let moduleInstructions = "";
+        if (module === 'creativity') {
+          moduleInstructions = "Ask them to describe a cool feature or a story for an app (like a game for pets or a homework helper).";
+        } else if (module === 'prompting') {
+          moduleInstructions = "Create a 'Literal Instruction' challenge (The Peanut Butter Toast Game). Give them a VAGUE physical task like 'How to tie a shoe' or 'How to pour milk' as a 'Starter Branch'. Challenge them to write exactly 3 literal, clear steps so a robot can't fail.";
+        } else if (module === 'code_onramp') {
+          moduleInstructions = "Ask them to solve a logic path. Example: 'Explain the steps your app takes to check if a player has enough gold to buy a sword.'";
+        }
+
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
-            contents: `Create a simple builder challenge for a 12-year-old. 
-            Module: ${module}.
+            contents: `Create a simple builder challenge for a 12-year-old in the "${module}" studio. 
             
-            SPECIFIC RULES PER MODULE:
-            - Design Studio: Ask them to describe a feature or story for an app (e.g. 'A pet dinosaur helper'). Mention they can 'narrate', 'map', or 'sketch' ideas.
-            - Comm Studio: PROVIDE A BAD PROMPT (a 'Starter Branch') and ask them to rewrite it to be better. Example: 'Rewrite this prompt to be more clear: "Make me a button that looks nice"'.
-            - Logic Studio: Ask them to solve a logic puzzle (e.g. 'If a user has 0 coins, should the shop button be hidden? Why?').
+            ${moduleInstructions}
             
             Return JSON:
             {
-              "challenge": string,
+              "challenge": string, 
               "hints": string[]
             }`,
             config: {
@@ -78,8 +96,8 @@ export const generatePracticePromptChallenge = async (module: string, previousCh
         return JSON.parse(response.text || '{}');
     } catch (e) {
         return { 
-          challenge: "Describe how your hero would choose their special power in your new game app.", 
-          hints: ["Use a list!", "Think about buttons."] 
+          challenge: "Starter Branch: 'Make a peanut butter sandwich.' Can you write 3 literal steps to make this happen without a robot getting confused?", 
+          hints: ["Be literal!", "Think about the lid."] 
         };
     }
 };

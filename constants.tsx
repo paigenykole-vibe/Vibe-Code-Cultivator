@@ -58,11 +58,11 @@ export const MODULES: ModuleData[] = [
     id: ModuleType.PROMPTING,
     title: "Comm Studio",
     subtitle: "Step 2: Clear Talking",
-    description: "Learn how to give AI better instructions. Turn fuzzy ideas into crystal clear directions.",
+    description: "Learn how to give AI better instructions. Practice the art of literal talking to get exactly what you want.",
     color: "#0077B6",
     icon: <IconCompose />,
-    lessons: ["Better Context", "Giving Rules", "Fixing Prompts"],
-    intro: "Time to learn 'AI Language'! It’s about being super precise. You'll take basic prompts and refine them into master instructions."
+    lessons: ["The Toast Game", "Literal Thinking", "Step-by-Step Instructions"],
+    intro: "Welcome to the Comm Studio! Computers take things VERY literally—just like the 'Peanut Butter Toast' game. If you aren't exact, they get confused. Let's practice giving commands that a robot couldn't mess up!"
   },
   {
     id: ModuleType.CODE_ONRAMP,

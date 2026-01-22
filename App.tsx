@@ -53,7 +53,8 @@ const App: React.FC = () => {
     localStorage.setItem('cultivator_stats', JSON.stringify(stats));
     localStorage.setItem('cultivator_unlocks', JSON.stringify(unlockedStudios));
     
-    const allDone = Object.values(stats.bucketXP).every(xp => xp >= 50);
+    // Explicitly cast xp to number to resolve comparison errors with unknown types
+    const allDone = Object.values(stats.bucketXP).every(xp => (xp as number) >= 50);
     if (allDone && !stats.allBucketsComplete) {
       setStats(s => ({ ...s, allBucketsComplete: true }));
       confetti({ particleCount: 200, spread: 90, origin: { y: 0.6 } });
@@ -406,7 +407,8 @@ const App: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 mb-32">
           {MODULES.map((m) => {
             const isUnlocked = unlockedStudios.includes(m.id);
-            const isCompleted = stats.bucketXP[m.id] >= 50;
+            // Explicitly cast xp to number for comparison
+            const isCompleted = (stats.bucketXP[m.id] as number) >= 50;
             const isActive = activePlayground === m.id;
             return (
               <ModuleCard 
@@ -540,7 +542,7 @@ const App: React.FC = () => {
                           </div>
                           {feedback.score >= 6 ? (
                             <button onClick={() => fetchNewChallenge(activePlayground!)} className="w-full py-6 btn-vibe rounded-2xl font-black text-xl uppercase tracking-widest">
-                              {stats.bucketXP[activePlayground] >= 50 ? "Refine Your Skills" : "Next Challenge ⚡"}
+                              {(stats.bucketXP[activePlayground] as number) >= 50 ? "Refine Your Skills" : "Next Challenge ⚡"}
                             </button>
                           ) : (
                             <button onClick={() => { setIsAnalyzed(false); setFeedback(null); }} className="w-full py-6 bg-[#F07167] text-white rounded-2xl font-black text-xl uppercase tracking-widest">Try Again 🔄</button>
@@ -588,7 +590,7 @@ const App: React.FC = () => {
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-[#2D434E] uppercase tracking-widest">
-              {Object.values(stats.bucketXP).filter(xp => xp >= 50).length} / 3 Buckets Filled
+              {Object.values(stats.bucketXP).filter(xp => (xp as number) >= 50).length} / 3 Buckets Filled
             </span>
           </div>
         </div>
